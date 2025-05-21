@@ -14,6 +14,7 @@ GRAVEL = 1
 CLAY = 2
 SAND = 3
 WATER = 4
+RAIN_DROP = 5
 
 # 색상
 COLOR_MAP = {
@@ -21,7 +22,8 @@ COLOR_MAP = {
     GRAVEL: (139, 69, 19),    # 자갈
     CLAY: (160, 82, 45),      # 점토
     SAND: (194, 178, 128),    # 모래
-    WATER: (0, 0, 255)        # 물
+    WATER: (0, 0, 255),       # 물
+    RAIN_DROP: (100, 149, 237)  # 비
 }
 
 # 침식 저항력
@@ -32,10 +34,9 @@ EROSION_RESISTANCE = {
 }
 
 # 강수 설정
-RAIN_AREA_WIDTH = 315
-RAIN_INTENSITY = 0  # 초기에는 비가 오지 않음
-MAX_RAIN_INTENSITY = 100
-rain_enabled = False  # 비 ON/OFF 상태
+RAIN_INTENSITY = 0
+MAX_RAIN_INTENSITY = 20
+rain_enabled = False
 
 # === 초기화 ===
 pygame.init()
@@ -50,20 +51,30 @@ handle_rect = pygame.Rect(slider_rect.x, slider_rect.y - 5, 10, 20)
 # 스위치 버튼
 switch_rect = pygame.Rect(300, SCREEN_HEIGHT - 50, 100, 30)
 
+# 격자 생성
 grid = [[AIR for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
+erosion_timers = [[0 for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
 
+# 경사진 지형 생성
 def create_mountain():
     for y in range(GRID_HEIGHT):
         for x in range(GRID_WIDTH):
-            if y > GRID_HEIGHT * 0.75:
-                grid[y][x] = GRAVEL
-            elif y > GRID_HEIGHT * 0.5:
-                grid[y][x] = CLAY
-            elif y > GRID_HEIGHT * 0.4:
-                grid[y][x] = SAND
+            slope = (GRID_HEIGHT * 0.75) - (x * 0.2)
+            if y > slope:
+                if y < slope + 20:
+                    grid[y][x] = SAND
+                elif y < slope + 40:
+                    grid[y][x] = CLAY
+                else:
+                    grid[y][x] = GRAVEL
+    # 맨 좌우 열은 항상 AIR로 설정 (지형 없음)
+    for y in range(GRID_HEIGHT):
+        grid[y][0] = AIR
+        grid[y][1] = AIR
 
 create_mountain()
 
+# 그리기 함수들
 def draw_grid():
     for y in range(GRID_HEIGHT):
         for x in range(GRID_WIDTH):
@@ -81,43 +92,92 @@ def draw_switch():
     label = font.render("Rain ON" if rain_enabled else "Rain OFF", True, (255, 255, 255))
     screen.blit(label, (switch_rect.x + 10, switch_rect.y + 5))
 
-def rain(frame):
+def draw_time(frame):
+    seconds = frame // 30
+    time_text = font.render(f"Time: {seconds}s", True, (255, 255, 255))
+    screen.blit(time_text, (450, SCREEN_HEIGHT - 45))
+
+# 비 생성
+def rain():
     if rain_enabled and RAIN_INTENSITY > 0:
         for _ in range(RAIN_INTENSITY):
-            x = GRID_WIDTH // 2 - RAIN_AREA_WIDTH // 2 + random.randint(0, RAIN_AREA_WIDTH)
+            x = random.randint(0, GRID_WIDTH - 2)
             if grid[0][x] == AIR:
-                grid[0][x] = WATER
+                grid[0][x] = RAIN_DROP
 
+# 비 및 물 업데이트
 def update_water():
-    for y in reversed(range(GRID_HEIGHT - 1)):
-        for x in range(1, GRID_WIDTH - 1):
-            if grid[y][x] == WATER:
-                if grid[y + 1][x] == AIR:
-                    grid[y + 1][x] = WATER
+    for y in reversed(range(GRID_HEIGHT)):
+        for x in range(0, GRID_WIDTH - 1):
+            if grid[y][x] == RAIN_DROP:
+                # 화면 아래 끝면에 닿으면 바로 사라짐
+                if x == 0:
                     grid[y][x] = AIR
-                elif grid[y + 1][x] in EROSION_RESISTANCE:
-                    resistance = EROSION_RESISTANCE[grid[y + 1][x]]
-                    if random.random() < 1 / (resistance * 10):
-                        grid[y + 1][x] = WATER
+                elif y == GRID_HEIGHT - 1:
+                    grid[y][x] = AIR
+                else:
+                    below = grid[y + 1][x]
+                    if below == AIR:
+                        grid[y + 1][x] = RAIN_DROP
                         grid[y][x] = AIR
                     else:
-                        grid[y][x] = AIR
-                else:
+                        # 좌우 먼저 시도
+                        moved = False
+                        for dx in [-1, 1]:
+                            nx = x + dx
+                            if 0 <= nx < GRID_WIDTH and grid[y][nx] == AIR:
+                                if grid[y-1][nx]==AIR:
+                                    grid[y-1][nx] = RAIN_DROP
+                                    grid[y][x] = AIR
+                                    moved = True
+                                    break
+                                else:
+                                    grid[y][nx] = RAIN_DROP
+                                    grid[y][x] = AIR
+                                    moved = True
+                                    break 
+                            # 침식 시도
+                        if below in EROSION_RESISTANCE:
+                            erosion_timers[y + 1][x] += 1
+                            resistance = EROSION_RESISTANCE[below]
+                            if erosion_timers[y + 1][x] >= resistance:
+                                erosion_timers[y + 1][x] = 0
+                                if grid[y + 1][x] == GRAVEL:
+                                    grid[y + 1][x] = CLAY
+                                elif grid[y + 1][x] == CLAY:
+                                    grid[y + 1][x] = SAND
+                                elif grid[y + 1][x] == SAND:
+                                    grid[y + 1][x] = AIR
+                                grid[y][x] = AIR
+                        else:
+                            grid[y][x] = AIR
+
+            elif grid[y][x] == WATER:
+                moved = False
+                # 좌우 먼저 우선적으로 확산하되, 이미 물이 있는 곳으로는 가지 않음
+                for dx in [-1, 1, 0]:
+                    ny, nx = y, x + dx
+                    if 0 <= nx < GRID_WIDTH:
+                        if grid[ny][nx] == AIR:
+                            grid[ny][nx] = WATER
+                            grid[y][x] = AIR
+                            moved = True
+                            break
+                        elif grid[ny][nx] == WATER:
+                            continue  # 물 있는 곳은 건너뜀
+                        elif grid[ny][nx] in EROSION_RESISTANCE:
+                            resistance = EROSION_RESISTANCE[grid[ny][nx]]
+                            if random.random() < 1 / (resistance * 10):
+                                grid[ny][nx] = WATER
+                                grid[y][x] = AIR
+                                moved = True
+                                break
+                # 아래로 이동은 마지막에 시도
+                if not moved and y + 1 < GRID_HEIGHT and grid[y + 1][x] == AIR:
+                    grid[y + 1][x] = WATER
                     grid[y][x] = AIR
 
-def mouse_rain():
-    mouse_pressed = pygame.mouse.get_pressed()
-    if mouse_pressed[0]:
-        mx, my = pygame.mouse.get_pos()
-        grid_x = mx // CELL_SIZE
-        grid_y = my // CELL_SIZE
-        for dy in range(-1, 2):
-            for dx in range(-1, 2):
-                nx, ny = grid_x + dx, grid_y + dy
-                if 0 <= nx < GRID_WIDTH and 0 <= ny < GRID_HEIGHT:
-                    if grid[ny][nx] == AIR:
-                        grid[ny][nx] = WATER
-
+# 슬라이더 조작
 def handle_slider(pos):
     global RAIN_INTENSITY
     if slider_rect.collidepoint(pos):
@@ -126,16 +186,13 @@ def handle_slider(pos):
         ratio = (new_x - slider_rect.x) / slider_rect.width
         RAIN_INTENSITY = int(ratio * MAX_RAIN_INTENSITY)
 
+# 비 스위치
 def toggle_rain(pos):
     global rain_enabled
     if switch_rect.collidepoint(pos):
         rain_enabled = not rain_enabled
 
-def draw_time(frame):
-    seconds = frame // 30  # 30 FPS 기준 초 단위 변환
-    time_text = font.render(f"Time: {seconds}s", True, (255, 255, 255))
-    screen.blit(time_text, (450, SCREEN_HEIGHT - 45))
-
+# === 메인 루프 ===
 frame = 0
 running = True
 while running:
@@ -143,10 +200,9 @@ while running:
     draw_grid()
     draw_slider()
     draw_switch()
-    rain(frame)
-    mouse_rain()
-    update_water()
     draw_time(frame)
+    rain()
+    update_water()
     pygame.display.flip()
     clock.tick(30)
     frame += 1

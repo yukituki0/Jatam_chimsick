@@ -1,91 +1,14 @@
 import pygame
-import sys
 import random
-# === Pygame 초기화 ===
-pygame.init()
-screen = pygame.display.set_mode((800, 600))
-pygame.display.set_caption("토양 침식 시뮬레이터 설정")
-font = pygame.font.SysFont(None, 28)
-    
-# === 입력창 클래스 ===
-class InputBox:
-    def __init__(self, x, y, w, h, label, default=''):
-        self.rect = pygame.Rect(x, y, w, h)
-        self.color = pygame.Color('dodgerblue2')
-        self.text = default
-        self.txt_surface = font.render(self.text, True, self.color)
-        self.active = False
-        self.label = label
 
-    def handle_event(self, event):
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            self.active = self.rect.collidepoint(event.pos)
-            self.color = pygame.Color('dodgerblue2') if self.active else pygame.Color('gray')
-        if event.type == pygame.KEYDOWN and self.active:
-            if event.key == pygame.K_RETURN:
-                self.active = False
-                self.color = pygame.Color('gray')
-            elif event.key == pygame.K_BACKSPACE:
-                self.text = self.text[:-1]
-            else:
-                self.text += event.unicode
-            self.txt_surface = font.render(self.text, True, self.color)
+# 기초 설정 
+SCREEN_WIDTH = 1280 # 화면 x 크기
+SCREEN_HEIGHT = 720 # 화면 y 크기
+CELL_SIZE = 3 # 픽셀당 사이즈
+GRID_WIDTH = SCREEN_WIDTH // CELL_SIZE # 픽셀 x 범위
+GRID_HEIGHT = SCREEN_HEIGHT // CELL_SIZE # 픽셀 y 범위
 
-    def draw(self, screen):
-        screen.blit(font.render(self.label, True, (255, 255, 255)), (self.rect.x - 180, self.rect.y + 5))
-        screen.blit(self.txt_surface, (self.rect.x + 5, self.rect.y + 5))
-        pygame.draw.rect(screen, self.color, self.rect, 2)
-
-    def get_value(self):
-        try:
-            return float(self.text)
-        except ValueError:
-            return 0
-
-# === 설정 입력창 생성 ===
-input_boxes = [
-    InputBox(250, 50, 140, 30, "inclination:", "0.2"),
-    InputBox(250, 100, 140, 30, "gravel:", "3"),
-    InputBox(250, 150, 140, 30, "clay:", "2"),
-    InputBox(250, 200, 140, 30, "sand:", "1"),
-]
-
-# 시작 버튼
-start_button = pygame.Rect(320, 450, 160, 50)
-
-def settings_screen():
-    while True:
-        screen.fill((30, 30, 30))
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
-            for box in input_boxes:
-                box.handle_event(event)
-            if event.type == pygame.MOUSEBUTTONDOWN and start_button.collidepoint(event.pos):
-                return [box.get_value() for box in input_boxes]
-
-        for box in input_boxes:
-            box.draw(screen)
-
-        pygame.draw.rect(screen, (0, 200, 0), start_button)
-        start_label = font.render("start", True, (255, 255, 255))
-        screen.blit(start_label, (start_button.x + 50, start_button.y + 10))
-
-        pygame.display.flip()
-        pygame.time.Clock().tick(30)
-
-# 설정 입력 받기
-slope_value, gravel_er, clay_er, sand_er = settings_screen()
-
-# 이제 설정을 반영한 시뮬레이터 실행
-SCREEN_WIDTH = 1280
-SCREEN_HEIGHT = 720
-CELL_SIZE = 4
-GRID_WIDTH = SCREEN_WIDTH // CELL_SIZE
-GRID_HEIGHT = SCREEN_HEIGHT // CELL_SIZE
-
-# 토양 종류
+# 토양 정보 지정정
 AIR = 0
 GRAVEL = 1
 CLAY = 2
@@ -103,10 +26,11 @@ COLOR_MAP = {
     RAIN_DROP: (100, 149, 237)  # 비
 }
 
+# 침식 저항력
 EROSION_RESISTANCE = {
-    GRAVEL: gravel_er,
-    CLAY: clay_er,
-    SAND:sand_er
+    GRAVEL: 30,
+    CLAY: 15,
+    SAND: 10
 }
 
 # 강수 설정
@@ -132,31 +56,23 @@ grid = [[AIR for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
 erosion_timers = [[0 for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
 
 # 경사진 지형 생성
-def create_mountain(slope_value):
-    # 흙 층의 총 두께를 slope_value에 따라 조절 (기본 두께: 60, 범위: 20~80)
-    base_thickness = int(max(20, min(80, 80 - slope_value * 60)))
-
-    sand_thickness = base_thickness // 3
-    clay_thickness = base_thickness // 3
-    gravel_thickness = base_thickness - sand_thickness - clay_thickness
-
+def create_mountain():
     for y in range(GRID_HEIGHT):
         for x in range(GRID_WIDTH):
-            slope = (GRID_HEIGHT * 0.75) - (x * slope_value)
+            slope = (GRID_HEIGHT * 0.75) - (x * 0.2)
             if y > slope:
-                if y < slope + sand_thickness:
+                if y < slope + 40:
                     grid[y][x] = SAND
-                elif y < slope + sand_thickness + clay_thickness:
+                elif y < slope + 80:
                     grid[y][x] = CLAY
                 else:
                     grid[y][x] = GRAVEL
-
     # 맨 좌우 열은 항상 AIR로 설정 (지형 없음)
     for y in range(GRID_HEIGHT):
         grid[y][0] = AIR
         grid[y][1] = AIR
 
-create_mountain(slope_value)
+create_mountain()
 
 # 그리기 함수들
 def draw_grid():
@@ -176,11 +92,6 @@ def draw_switch():
     label = font.render("Rain ON" if rain_enabled else "Rain OFF", True, (255, 255, 255))
     screen.blit(label, (switch_rect.x + 10, switch_rect.y + 5))
 
-def draw_time(frame):
-    seconds = frame // 30
-    time_text = font.render(f"Time: {seconds}s", True, (255, 255, 255))
-    screen.blit(time_text, (450, SCREEN_HEIGHT - 45))
-
 # 비 생성
 def rain():
     if rain_enabled and RAIN_INTENSITY > 0:
@@ -193,11 +104,12 @@ def rain():
 def update_water():
     for y in reversed(range(GRID_HEIGHT)):
         for x in range(0, GRID_WIDTH - 1):
+            if x == 0:
+                grid[y][x] = AIR
+
             if grid[y][x] == RAIN_DROP:
                 # 화면 아래 끝면에 닿으면 바로 사라짐
-                if x == 0:
-                    grid[y][x] = AIR
-                elif y == GRID_HEIGHT - 1:
+                if y == GRID_HEIGHT - 1:
                     grid[y][x] = AIR
                 else:
                     below = grid[y + 1][x]
@@ -284,7 +196,6 @@ while running:
     draw_grid()
     draw_slider()
     draw_switch()
-    draw_time(frame)
     rain()
     update_water()
     pygame.display.flip()

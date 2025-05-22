@@ -13,7 +13,6 @@ AIR = 0
 GRAVEL = 1
 CLAY = 2
 SAND = 3
-WATER = 4
 RAIN_DROP = 5
 
 # 색상
@@ -22,15 +21,14 @@ COLOR_MAP = {
     GRAVEL: (139, 69, 19),    # 자갈
     CLAY: (160, 82, 45),      # 점토
     SAND: (194, 178, 128),    # 모래
-    WATER: (0, 0, 255),       # 물
     RAIN_DROP: (100, 149, 237)  # 비
 }
 
 # 침식 저항력
 EROSION_RESISTANCE = {
-    GRAVEL: 30,
-    CLAY: 15,
-    SAND: 10
+    GRAVEL: 3,
+    CLAY: 2,
+    SAND: 1
 }
 
 # 강수 설정
@@ -116,6 +114,8 @@ def update_water():
                     if below == AIR:
                         grid[y + 1][x] = RAIN_DROP
                         grid[y][x] = AIR
+                    elif below == RAIN_DROP:
+                        grid[y][x]=AIR
                     else:
                         # 좌우 먼저 시도
                         moved = False
@@ -147,32 +147,6 @@ def update_water():
                                 grid[y][x] = AIR
                         else:
                             grid[y][x] = AIR
-
-            elif grid[y][x] == WATER:
-                moved = False
-                # 좌우 먼저 우선적으로 확산하되, 이미 물이 있는 곳으로는 가지 않음
-                for dx in [-1, 1, 0]:
-                    ny, nx = y, x + dx
-                    if 0 <= nx < GRID_WIDTH:
-                        if grid[ny][nx] == AIR:
-                            grid[ny][nx] = WATER
-                            grid[y][x] = AIR
-                            moved = True
-                            break
-                        elif grid[ny][nx] == WATER:
-                            continue  # 물 있는 곳은 건너뜀
-                        elif grid[ny][nx] in EROSION_RESISTANCE:
-                            resistance = EROSION_RESISTANCE[grid[ny][nx]]
-                            if random.random() < 1 / (resistance * 10):
-                                grid[ny][nx] = WATER
-                                grid[y][x] = AIR
-                                moved = True
-                                break
-                # 아래로 이동은 마지막에 시도
-                if not moved and y + 1 < GRID_HEIGHT and grid[y + 1][x] == AIR:
-                    grid[y + 1][x] = WATER
-                    grid[y][x] = AIR
-
 # 슬라이더 조작
 def handle_slider(pos):
     global RAIN_INTENSITY
